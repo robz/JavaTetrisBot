@@ -7,7 +7,7 @@ class JavaTetrisBot {
     public static void press(Robot r, int key, int times) {
         for (int i = 0; i < times; i++) {
             r.keyPress(key);
-            r.delay(50);
+            r.delay(100); 
             r.keyRelease(key);
             r.delay(100);
         }
@@ -17,7 +17,7 @@ class JavaTetrisBot {
         System.out.println("hi!");
         Robot robot;
         try {
-            robot = new Robot();
+             robot = new Robot();
         } catch (Exception ex) {
             ex.printStackTrace();
             return;
@@ -45,13 +45,57 @@ class JavaTetrisBot {
  * (the larger the fitness value, the worse the placement is) 
  * */
 
-    static int getPlacementFitness(int[][] field, Piece p) {
+    static double getPlacementFitness(int[][] field, Piece p, Field gameField) {
+        int width = p.getCurPosWidth(),
+            leftpad = p.getCurPosLeftPad();
+        
+        // count how many edges there are after placement
+        int num_edges = 400;
+
+        int[][] difs = {{-1,0},{1,0},{0,-1},{0,1}};
+        for (int r = 0; r < ROWS; r++) {
+            for (int c = 0; c < COLS; c++) {
+                if (p.isIn(r, c) || field[r][c] > 0) {
+                    for (int i = 0; i < difs.length; i++) {
+                        int newc = c+difs[i][0],
+                            newr = r+difs[i][1];
+                        if (newr < 0 || newr >= ROWS) {
+                        } else if (newc < 0 || newc >= COLS) {
+                            num_edges--;
+                        } else if (p.isIn(newr, newc) || field[newr][newc] > 0) {
+                            num_edges--;
+                        }    
+                    }
+                }
+            }
+        }
+        
+        // find height added
+        int max_height = 0;
+        
+        for (int c = 0; c < width; c++) {
+            int h = gameField.heightOfCol(c+leftpad+p.offc)
+                    + p.getCurPosColHeight(c);
+            if (h > max_height) {
+                max_height = h;
+            }
+        }
+
+        // count # of lines cleared from placement
+        int lines_not_cleared = 20;
+        
+        for (int r = 0; r < ROWS; r++) {
+            boolean willbecleared = true;
+            for (int c = 0; c < COLS; c++) {
+                willbecleared &= (p.isIn(r, c) || field[r][c] > 0);
+            }
+            if (willbecleared) lines_not_cleared--;
+        }
+
         // count # of spaces created from placement
         int space_count = 0;
 
-        int width = p.getCurPosWidth(),
-            leftpad = p.getCurPosLeftPad(),
-            startCol = p.offc + leftpad, 
+        int startCol = p.offc + leftpad, 
             endCol = startCol + width;
 
         for (int c = startCol; c < endCol; c++) {
@@ -64,35 +108,11 @@ class JavaTetrisBot {
             }
         }
 
-        return space_count;
+        return space_count*.4 + lines_not_cleared*.3 + max_height*.3 + .01*num_edges;
     }
 
 /* Find and execute best move give a piece and a board */
     
-    static class Field {
-        int[][] table;
-        int[] col_heights;
-
-        public Field(int[][] table) {
-            this.table = table;
-            col_heights = new int[table[0].length];
-
-            for (int c = 0; c < table[0].length; c++) {
-                col_heights[c] = 0;
-                for (int r = 0; r < table.length; r++) {
-                    if (table[r][c] > 0) {
-                        col_heights[c] = table.length - r;
-                        break;
-                    }
-                }
-            }
-        }
-
-        public int heightOfCol(int col) {
-            return col_heights[col];
-        }
-    }
-
     static class Move {
         int offc, orient;
         Piece p;
@@ -109,12 +129,10 @@ class JavaTetrisBot {
         int width = m.p.getCurPosWidth(),
             leftpad = m.p.getCurPosLeftPad();
        
-        System.out.println("row stuff: "+m.p.offr);
         for (int r = m.p.offr; r < m.p.offr + 4; r++) {
-            System.out.println("col stuff: "+m.p.offc+","+leftpad+","+width);
             for (int c = m.p.offc + leftpad; c < m.p.offc + leftpad + width; c++) {
                 if (r >= 0 && r < 20 && m.p.isIn(r, c)) {
-                    field[r][c] = pieceIndex;
+                    field[r][c] = pieceIndex+1;
                 }
             }
         }
@@ -147,8 +165,8 @@ class JavaTetrisBot {
         Piece p = pieces[pieceIndex].deepcopy();
         Field f = new Field(field);
         
-        int best_fitness = 99999,
-            best_offc = -1,
+        double best_fitness = 99999;
+        int best_offc = -1,
             best_orient = -1,
             best_offr = -1;
 
@@ -178,7 +196,7 @@ class JavaTetrisBot {
 
                 p.offr = farthestrow;
                 
-                int fitness = getPlacementFitness(field, p);
+                double fitness = getPlacementFitness(field, p, f);
                 if (fitness < best_fitness) {
                     best_fitness = fitness;
                     best_offc = p.offc;
@@ -229,15 +247,14 @@ class JavaTetrisBot {
 
         int pieceType = -1;
 
-        int c = STARTER_ROW+1;
-        for (int r = 0; r < 4; r++) {
+        int c = 4;
+        for (int r = 0; r < 1; r++) {
             Color color = robot.getPixelColor(topleftx+DIFX*c, toplefty+DIFY*r);
             pieceType = getSquareType(color.getRGB()&0xFFFFFF);
-            // System.out.printf("%x\n",color.getRGB()&0xFFFFFF);
             if (pieceType > 0 && pieceType < BLOCK_INDEX+1) {
                 break;
-            }
-        } 
+            } 
+        }
 
         return pieceType-1;
     }
@@ -247,51 +264,10 @@ class JavaTetrisBot {
 
 /* Converting the field to an array */
 
-    static class Piece {
-        int color;
-        int[][][] positions;
-        int offr, offc;
-        int cur_pos;
-        
-        public Piece(int color, int[][][] positions, int or, int oc) { 
-            this.color = color; 
-            this.positions = positions;
-            this.offr = or;
-            this.offc = oc;
-            this.cur_pos = 0;
-        }
-
-        public int getCurPosWidth() {
-            return positions[this.cur_pos][0][1];
-        }
-
-        public int getCurPosLeftPad() {
-            return positions[this.cur_pos][0][0];
-        }
-
-        public int getCurPosColHeight(int col) {
-            return positions[this.cur_pos][0][2+col];
-        }
-
-        public boolean isIn(int r, int c) {
-            if (r < offr || r >= 4+offr) return false;
-            return positions[cur_pos][r-offr+1][c-offc] == 1;
-        }
-
-        public void rotate() {
-            cur_pos = (cur_pos+1)%positions.length;
-        }
-
-        public Piece deepcopy() {
-            return new Piece(this.color,
-                             this.positions,
-                             this.offr, 
-                             this.offc);
-        }
-    }
-
-    static int STARTX = 106, STARTY = 304,
+    static int //STARTX = 6, STARTY = 52,
+               //STARTX = 106, STARTY = 304,
                //STARTX = 298, STARTY = 289, 
+               STARTX = 400, STARTY = 440,
                DIFX = 18, DIFY = 18;
 
     static int BLOCK_INDEX = 7;
@@ -335,7 +311,7 @@ class JavaTetrisBot {
 
     public static void dispField(int[][] field) {
         System.out.println("+---------------------+");
-        for (int r = 0; r < field.length; r++) {
+        for (int r = ROWS/2; r < field.length; r++) {
             System.out.print("|");
             for (int c = 0; c < field[r].length; c++) {
                 System.out.print(" "+pieceTypes[field[r][c]]);
@@ -344,174 +320,14 @@ class JavaTetrisBot {
         }
         System.out.println("+---------------------+");
     }
-
-static int[][][][] piece_configs = {
-{
-    { {0,2, 2,2},
-      {1,1,0,0},
-      {1,1,0,0},
-      {0,0,0,0},
-      {0,0,0,0} },
-},
-{
-    { {0,4, 2,2,2,2},
-      {0,0,0,0},
-      {1,1,1,1},
-      {0,0,0,0},
-      {0,0,0,0} },
     
-    { {2,1, 4},
-      {0,0,1,0},
-      {0,0,1,0},
-      {0,0,1,0},
-      {0,0,1,0} },
-    
-    { {0,4, 3,3,3,3},
-      {0,0,0,0},
-      {0,0,0,0},
-      {1,1,1,1},
-      {0,0,0,0} },
-    
-    { {1,1, 4},
-      {0,1,0,0},
-      {0,1,0,0},
-      {0,1,0,0},
-      {0,1,0,0} },
-},
-{
-    { {0,3, 2,2,2},
-      {0,0,1,0},
-      {1,1,1,0},
-      {0,0,0,0},
-      {0,0,0,0} },
-    
-    { {1,2, 3,3},
-      {0,1,0,0},
-      {0,1,0,0},
-      {0,1,1,0},
-      {0,0,0,0} },
-    
-    { {0,3, 3,2,2},
-      {0,0,0,0},
-      {1,1,1,0},
-      {1,0,0,0},
-      {0,0,0,0} },
-    
-    { {0,2, 1,3},
-      {1,1,0,0},
-      {0,1,0,0},
-      {0,1,0,0},
-      {0,0,0,0} },
-},
-{
-    { {0,3, 2,2,2},
-      {1,0,0,0},
-      {1,1,1,0},
-      {0,0,0,0},
-      {0,0,0,0} },
-    
-    { {1,2, 3,1},
-      {0,1,1,0},
-      {0,1,0,0},
-      {0,1,0,0},
-      {0,0,0,0} },
-    
-    { {0,3, 2,2,3},
-      {0,0,0,0},
-      {1,1,1,0},
-      {0,0,1,0},
-      {0,0,0,0} },
-    
-    { {0,2, 3,3},
-      {0,1,0,0},
-      {0,1,0,0},
-      {1,1,0,0},
-      {0,0,0,0} },
-},
-{
-    { {0,3, 2,2,2},
-      {0,1,0,0},
-      {1,1,1,0},
-      {0,0,0,0},
-      {0,0,0,0} },
-    
-    { {1,2, 3,2},
-      {0,1,0,0},
-      {0,1,1,0},
-      {0,1,0,0},
-      {0,0,0,0} },
-    
-    { {0,3, 2,3,2},
-      {0,0,0,0},
-      {1,1,1,0},
-      {0,1,0,0},
-      {0,0,0,0} },
-    
-    { {0,2, 2,3},
-      {0,1,0,0},
-      {1,1,0,0},
-      {0,1,0,0},
-      {0,0,0,0} },
-},
-{
-    { {0,3, 2,2,1},
-      {0,1,1,0},
-      {1,1,0,0},
-      {0,0,0,0},
-      {0,0,0,0} },
-    
-    { {1,2, 2,3},
-      {0,1,0,0},
-      {0,1,1,0},
-      {0,0,1,0},
-      {0,0,0,0} },
-    
-    { {0,3, 3,3,2},
-      {0,0,0,0},
-      {0,1,1,0},
-      {1,1,0,0},
-      {0,0,0,0} },
-    
-    { {0,2, 2,3},
-      {1,0,0,0},
-      {1,1,0,0},
-      {0,1,0,0},
-      {0,0,0,0} },
-},
-{
-    { {0,3, 1,2,2},
-      {1,1,0,0},
-      {0,1,1,0},
-      {0,0,0,0},
-      {0,0,0,0} },
-    
-    { {1,2, 3,2},
-      {0,0,1,0},
-      {0,1,1,0},
-      {0,1,0,0},
-      {0,0,0,0} },
-    
-    { {0,3, 2,3,3},
-      {0,0,0,0},
-      {1,1,0,0},
-      {0,1,1,0},
-      {0,0,0,0} },
-    
-    { {0,2, 3,2},
-      {0,1,0,0},
-      {1,1,0,0},
-      {1,0,0,0},
-      {0,0,0,0} },
-},
-};
-
     static Piece[] pieces = {
-        new Piece(0xFFC225, piece_configs[0], -1, 4),
-        new Piece(0x32BEFA, piece_configs[1], -1, 3),
-        new Piece(0xFF7E25, piece_configs[2], -1, 3),
-        new Piece(0x4464E9, piece_configs[3], -1, 3),
-        new Piece(0xD24CAD, piece_configs[4], -1, 3),
-        new Piece(0x7CD424, piece_configs[5], -1, 3),
-        new Piece(0xFA325A, piece_configs[6], -1, 3)
+        new Piece(0xFFC225, Piece.piece_configs[0], -1, 4),
+        new Piece(0x32BEFA, Piece.piece_configs[1], -1, 3),
+        new Piece(0xFF7E25, Piece.piece_configs[2], -1, 3),
+        new Piece(0x4464E9, Piece.piece_configs[3], -1, 3),
+        new Piece(0xD24CAD, Piece.piece_configs[4], -1, 3),
+        new Piece(0x7CD424, Piece.piece_configs[5], -1, 3),
+        new Piece(0xFA325A, Piece.piece_configs[6], -1, 3)
     };
 }
